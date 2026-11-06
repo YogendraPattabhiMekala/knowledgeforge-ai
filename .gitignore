@@ -1,0 +1,55 @@
+# Dependencies / generated build files
+node_modules/
+.next/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+build/
+dist/
+out/
+# Local credentials and runtime state (only documented examples are allowed)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+*.db
+*.db-*
+*.sqlite*
+uploads/
+.data/
+.cache/
+# Test, coverage, traces and disposable exports
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+coverage/
+htmlcov/
+test-results/
+playwright-report/
+blob-report/
+artifacts/
+validation-output/
+*.log
+*.zip
+*.tar
+*.tar.gz
+*.sql
+*.dump
+# Infrastructure state
+.terraform/
+*.tfstate*
+*.tfvars
+!*.tfvars.example
+# Editor/OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,95 @@
+name: knowledgeforge
+x-api: &api
+  build:
+    context: .
+    dockerfile: infrastructure/docker/api.Dockerfile
+  env_file: .env
+  environment: &api-env
+    DATABASE_URL: postgresql+asyncpg://forge:${POSTGRES_PASSWORD:-local-development-change-me}@postgres:5432/knowledgeforge
+    REDIS_URL: redis://redis:6379/0
+    STORAGE_BACKEND: s3
+    S3_ENDPOINT: http://minio:9000
+    S3_BUCKET: knowledgeforge
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-local-storage-change-me}
+    TASK_MODE: celery
+    BOOTSTRAP_SCHEMA: "false"
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    storage-init: {condition: service_completed_successfully}
+    migrate: {condition: service_completed_successfully}
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: knowledgeforge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-change-me}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d knowledgeforge"]
+      interval: 5s
+      retries: 15
+  redis:
+    image: redis:7.4.2-alpine
+    command: redis-server --appendonly yes
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 15
+  minio:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/minio.Dockerfile
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-local-storage-change-me}
+    volumes: [minio-data:/data]
+    ports: ["127.0.0.1:9001:9001"]
+  storage-init:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    env_file: .env
+    environment:
+      <<: *api-env
+    depends_on: [minio]
+    command: python -m app.storage_init
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    env_file: .env
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres: {condition: service_healthy}
+    command: python -m alembic upgrade head
+  api:
+    <<: *api
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      retries: 10
+  worker:
+    <<: *api
+    command: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=2
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:8000
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    ports: ["${WEB_PORT:-3000}:3000"]
+    depends_on:
+      api: {condition: service_healthy}
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

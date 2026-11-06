@@ -1,0 +1,33 @@
+services:
+  postgres-test:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: knowledgeforge_test
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: disposable-test-only
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forge -d knowledgeforge_test"]
+      interval: 2s
+      retries: 20
+  test:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    env_file: .env
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://forge:disposable-test-only@postgres-test:5432/knowledgeforge_test
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: knowledgeforge
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-local-storage-change-me}
+      INTEGRATION_SERVICES: "1"
+      ENVIRONMENT: test
+    depends_on:
+      postgres-test: {condition: service_healthy}
+      worker: {condition: service_started}
+      api: {condition: service_healthy}
+      web: {condition: service_started}
+    command: python -m pytest -q

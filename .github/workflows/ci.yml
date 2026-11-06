@@ -1,0 +1,53 @@
+name: Verification
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  local-and-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: apps/web/package-lock.json}
+      - run: pip install -r apps/api/requirements.lock
+      - run: cd apps/api && pytest -q
+      - run: python scripts/release.py --check
+      - run: pip install pip-audit==2.10.0 && pip-audit --no-deps --disable-pip -r apps/api/requirements.lock
+      - run: cd apps/web && npm ci && npm run typecheck && npm test && npm audit --audit-level=high && npm run build
+      - run: cd apps/web && npx playwright install --with-deps chromium
+      - name: Start disposable local preview
+        run: |
+          cd apps/api
+          python -m app.seed
+          python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1 &
+          cd ../web
+          cp -r .next/static .next/standalone/.next/static
+          HOSTNAME=0.0.0.0 PORT=3000 node .next/standalone/server.js > /tmp/web.log 2>&1 &
+      - run: python scripts/wait_ready.py
+      - run: cd apps/web && npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: |
+            artifacts/
+            apps/web/test-results/
+  disposable-services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - name: Integration suite (destructive, separate Compose project)
+        run: docker compose -p forge-ci -f docker-compose.yml -f docker-compose.test.yml run --build --rm test
+      - name: Live API, queue and object-storage acceptance
+        run: docker compose -p forge-ci -f docker-compose.yml -f docker-compose.test.yml run --no-deps --rm -v "$PWD/scripts:/checks:ro" test python /checks/verify_stack.py http://web:3000
+      - name: Service logs
+        if: always()
+        run: docker compose -p forge-ci -f docker-compose.yml -f docker-compose.test.yml logs --no-color
+      - name: Remove disposable resources
+        if: always()
+        run: docker compose -p forge-ci -f docker-compose.yml -f docker-compose.test.yml down -v --remove-orphans
