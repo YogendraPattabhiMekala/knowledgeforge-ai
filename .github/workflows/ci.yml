@@ -4,7 +4,7 @@ permissions:
   contents: read
 jobs:
   local-and-browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
             artifacts/
             apps/web/test-results/
   disposable-services:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
